@@ -1,0 +1,166 @@
+#!/bin/bash
+set -e
+
+# protobuild: Build the gRPC protocol files for client and server
+
+function gen_go() {
+    local protodir="$1"
+    local outdir="$2"
+
+    protoc "${protodir}"/*.proto \
+        -I . \
+        -I "$(go env GOMODCACHE)/github.com/envoyproxy/protoc-gen-validate@v0.6.7" \
+        --go_out="${outdir}" \
+        --go-grpc_out="${outdir}" \
+        --validate_out="lang=go:${outdir}" \
+        --validate_opt=paths=source_relative \
+        --go_opt=paths=source_relative \
+        $grpc_opts
+}
+
+function gen_ts() {
+    local protodir="$1"
+    local outdir="$2"
+
+    protoc \
+        -I . \
+        -I "$(go env GOMODCACHE)/github.com/envoyproxy/protoc-gen-validate@v0.6.7" \
+        --plugin=protoc-gen-ts_proto="${node_modules}"/.bin/protoc-gen-ts_proto \
+        --ts_proto_out="${outdir}" \
+        --ts_proto_opt=esModuleInterop=true \
+        --ts_proto_opt=env=browser,outputServices=nice-grpc,outputServices=generic-definitions,outputJsonMethods=true,useExactTypes=true \
+        "${protodir}"/*.proto \
+        $grpc_opts
+}
+
+
+lang=""
+outdir=""
+generate=""
+module=""
+proto_path=""
+
+optspec=":h-:"
+while getopts "$optspec" optchar; do
+    case "${optchar}" in
+        -)
+            case "${OPTARG}" in
+                lang)
+                    val="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ))
+                    lang="${val}"
+                ;;
+                lang=*)
+                    val=${OPTARG#*=}
+                    # opt=${OPTARG%=$val}
+                    lang="${val}"
+                ;;
+                outdir)
+                    val="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ))
+                    outdir="${val}"
+                ;;
+                outdir=*)
+                    val=${OPTARG#*=}
+                    outdir="${val}"
+                ;;
+                node-modules)
+                    val="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ))
+                    node_modules="${val}"
+                ;;
+                node-modules=*)
+                    val=${OPTARG#*=}
+                    node_modules="${val}"
+                ;;
+                module=*)
+                    val=${OPTARG#*=}
+                    module="${val}"
+                ;;
+                proto-path)
+                    val="${!OPTIND}"; OPTIND=$(( $OPTIND + 1 ))
+                    proto_path="${proto_path} -I ${val}"
+                ;;
+                proto-path=*)
+                    val=${OPTARG#*=}
+                    proto_path="${proto_path} -I ${val}"
+                ;;
+                *)
+                    if [ "$OPTERR" = 1 ] && [ "${optspec:0:1}" != ":" ]; then
+                        echo "Unknown option --${OPTARG}" >&2
+                        exit 4
+                    else
+                        echo "DBG: ${OPTARG}"
+                    fi
+                ;;
+        esac;;
+        h)
+            echo "usage: $0 --lang[=]<ts|go> [--outdir[=]<value>] [--node-modules[=]<value>] [--loglevel[=]<value>]" >&2
+            exit 2
+        ;;
+        *)
+            if [ "$OPTERR" != 1 ] || [ "${optspec:0:1}" = ":" ]; then
+                echo "Non-option argument: '-${OPTARG}'" >&2
+                exit 3
+            fi
+        ;;
+    esac
+done
+
+grpc_opts="${proto_path}"
+
+case $lang in
+    go)
+        grpc_opts="$grpc_opts --go-grpc_opt=paths=source_relative "
+        # A note on "--go-grpc_opt=requireUnimplementedServers=false": see the big
+        # discussion here: https://github.com/grpc/grpc-go/issues/3669
+        #
+        # And documentation here:
+        # https://github.com/grpc/grpc-go/blob/master/cmd/protoc-gen-go-grpc/README.md
+        #
+        # At least in the case of using mockery (https://github.com/vektra/mockery),
+        # the default mode won't work and we need to use this option.
+        if [ -n "${DISABLE_REQUIRE_UNIMPLEMENTED_SERVERS}" ]; then
+            grpc_opts="$grpc_opts --go-grpc_opt=require_unimplemented_servers=false"
+            echo "==> disabling require_unimplemented_servers"
+        fi
+
+        if [ -z "$outdir" ]; then
+            outdir="$PWD/gen/go"
+        fi
+
+        PATH="$(go env GOPATH)/bin:$PATH"
+        generate="gen_go"
+    ;;
+    ts)
+        if [ -z "${node_modules}" ]; then
+            echo "Must specify node_modules location via --node-modules"
+            exit 1
+        fi
+
+        if [ -z "$outdir" ]; then
+            outdir="$PWD/gen/ts"
+        fi
+
+        generate="gen_ts"
+    ;;
+    *)
+        echo "Invalid language or no language specified: $lang"
+        exit 1
+    ;;
+esac
+
+# macOS protobuf can't find built-in types
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    grpc_opts="$grpc_opts --proto_path /usr/local/include --proto_path ."
+fi
+
+if [ -n "$module" ]; then
+    echo "$module"
+else
+    find . -maxdepth 1 -type d | grep -Ev "^(./scripts|./gen|[.]|[.]/[.].*)$"
+fi | while read -r api; do
+        api="$(basename "$api")"
+
+        echo "==> protorepo: generating $api for $lang"
+        mkdir -p "$outdir/$api"
+
+        $generate "$api" "$outdir"
+    done
