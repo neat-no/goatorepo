@@ -14,7 +14,7 @@ message Rpc {
     // request. At a minimum in such a request, the RPC method to be invoked is set. This
     // information is transferred in the URL path in HTTP/2.
     RequestHeader header = 2;
-    // When a request finishes, it is explicitly marked with a status code, and optionally
+    // When a request finishes, it is explicitly marked with a status code, and
     // with trailers. In HTTP/2 this is communicated with a HEADERS frame following the
     // response DATA frame, with certain canonical headers set like `grpc-status`.
     ResponseStatus status = 3;
