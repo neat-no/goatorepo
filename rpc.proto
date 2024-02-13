@@ -26,6 +26,8 @@ message Rpc {
     // to be communicated. This maps onto "Trailers" in the HTTP/2 encoding, but without
     // status-code, which is encoded explicitly above.
     Trailer trailer = 5;
+    // Abnormal reset information, like RST_STREAM in HTTP/2.
+    Reset reset = 6;
 }
 
 message RequestHeader {
@@ -57,4 +59,8 @@ message Body {
 // Signals that a stream is done. Used only as a response.
 message Trailer {
     repeated KeyValue metadata = 1;
+}
+
+message Reset {
+    string type = 1;
 }
