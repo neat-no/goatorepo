@@ -1,1 +1,1 @@
-Protobuf definitions for [GOAT](https://github.com/avos-io/goat).
+Protobuf definitions for [GOAT](https://github.com/neat-no/goat).

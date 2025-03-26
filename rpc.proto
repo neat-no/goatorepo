@@ -4,7 +4,7 @@ import "google/protobuf/any.proto";
 
 package goatorepo;
 option go_package = "./goatorepo";
-option java_package = "io.avos.goatorepo";
+option java_package = "no.neat.goatorepo";
 
 // Top-level message used for all GOAT communications.
 message Rpc {
